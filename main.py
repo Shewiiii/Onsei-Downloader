@@ -171,14 +171,14 @@ def fetch_cover_image(
 
 
 def complete_download(
-    user_input: str
+    code: str
 ) -> None:
     config = read_config('config.json')
-    work_id = get_work_id(user_input)
+    work_id = get_work_id(code)
     if not work_id:
         logging.error('No work_id found in user input')
         return
-    root_path = Path(config['rootPath']) / user_input
+    root_path = Path(config['rootPath']) / code
     ignore_list = config['ignore']
     root_path.mkdir(parents=True, exist_ok=True)
     logging.info(f'Created folder: {root_path}')
@@ -190,4 +190,5 @@ def complete_download(
 
 if __name__ == '__main__':
     user_input: str = input('RJ/VJ code: ')
-    complete_download(user_input)
+    for code in user_input.split(','):
+        complete_download(code)

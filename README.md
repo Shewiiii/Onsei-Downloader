@@ -21,6 +21,7 @@ Before running the script, rename the `config.json.template` file to `config.jso
 - `ignore`: List of file extensions or folder names to ignore during the download process.
 
 ## Usage
+### Running the Script from the Command Line
 1. **Run the script**:
 ```bash
 python3 main.py
@@ -31,3 +32,16 @@ When prompted, enter the RJ/VJ code(s) separated by commas. Example:
 RJ401708,RJ240668
 ```
 3. **Done !**
+### Using the Script in Python
+1. **Import the script**:
+```python
+from main import download_onsei
+```
+2. **Call the** `download_onsei` **function**:   
+Pass the RJ/VJ code as a string to the function. Example:
+```python
+code = "RJ401708"
+download_onsei(code)
+```
+3. **That's all !**
+

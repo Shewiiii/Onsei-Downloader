@@ -17,20 +17,20 @@ logging.basicConfig(
 )
 
 
-def get_id(
+def get_work_id(
     user_input: str
 ) -> str | None:
     search = re.findall(r'\d+', str(user_input))
     if not search:
         return
-    id = search[0]
-    return id
+    work_id = search[0]
+    return work_id
 
 
 def get_onsei_api(
-    id: str
+    work_id: str
 ) -> list | dict:
-    url = f'https://api.asmr.one/api/tracks/{id}'
+    url = f'https://api.asmr.one/api/tracks/{work_id}'
     logging.info(f'Request: {url}')
     response = requests.get(url)
     onsei_api = json.loads(response.content)
@@ -55,6 +55,76 @@ def tag_file(
     logging.info(f'Tagged file: {file_path}')
 
 
+def download_media(
+    file_path: Path,
+    media_download_url: str
+) -> bool:
+    try:
+        with open(file_path, 'xb') as file:
+            file.write(requests.get(media_download_url).content)
+        logging.info(f'Saved file: {file_path}')
+    except FileExistsError:
+        logging.info(f'File already exists: {file_path}')
+        return False
+    except Exception as e:
+        logging.error(f'Error creating {file_path}: {e}')
+        return False
+    return True
+
+
+def create_folder(
+    folder_path: Path
+) -> None:
+    try:
+        folder_path.mkdir(parents=True)
+        logging.info(f'Created folder: {folder_path}')
+    except FileExistsError:
+        logging.info(f'Folder already exists: {folder_path}')
+    except Exception as e:
+        logging.error(f'Error creating folder {folder_path}: {e}')
+
+
+def save_text_file(file_path: Path, media_stream_url: str) -> None:
+    with open(file_path, 'w', encoding="utf-8") as file:
+        file.write(requests.get(media_stream_url).text)
+
+
+def save_cover_image(cover_path: Path, cover: bytes) -> None:
+    cover_path.write_bytes(cover)
+    logging.info(f'Saved cover: {cover_path}')
+
+
+def process_file(
+    onsei_api: dict,
+    path: Path,
+    cover: bytes,
+    ignore: list
+) -> None:
+    file_type = onsei_api['type']
+    media_download_url = onsei_api['mediaDownloadUrl']
+    media_stream_url = onsei_api['mediaStreamUrl']
+    extension = os.path.splitext(media_download_url)[1]
+
+    if extension[1:] in ignore:
+        return
+
+    file_path = path / onsei_api['title']
+    if file_type == 'text':
+        save_text_file(file_path, media_stream_url)
+    else:
+        file_downloaded = download_media(file_path, media_download_url)
+        if file_downloaded and file_type == 'audio':
+            tag_file(
+                file_path=file_path,
+                cover=cover,
+                title=os.path.splitext(onsei_api['title'])[0],
+                work_title=onsei_api['workTitle']
+            )
+        cover_path = path / 'cover.jpg'
+        if not cover_path.is_file():
+            save_cover_image(cover_path, cover)
+
+
 def recursive_download(
     onsei_api: list | dict,
     cover: bytes,
@@ -64,80 +134,58 @@ def recursive_download(
     if 'error' in onsei_api:
         logging.error(onsei_api['error'])
         return
-    elif isinstance(onsei_api, list):
+    # Folder/file list at a certain folder depth
+    if isinstance(onsei_api, list):
         for element in onsei_api:
-            recursive_download(
-                onsei_api=element,
-                cover=cover,
-                path=path,
-                ignore=ignore
-            )
-    # Dict
+            recursive_download(element, cover, path, ignore)
+    # Folder api dict
     elif onsei_api['type'] == 'folder':
         folder_name = onsei_api['title']
-        folder_path: Path = path / folder_name
         # Don't create a folder if the folder name contains an ignored format
-        if all(word not in folder_name for word in ignore):
-            folder_path.mkdir(parents=True, exist_ok=True)
-            logging.info(f'Created folder: {folder_path}')
-            recursive_download(
-                onsei_api=onsei_api['children'],
-                cover=cover,
-                path=folder_path,
-                ignore=ignore
-            )
-    else:
-        type = onsei_api['type']
-        media_download_url = onsei_api['mediaDownloadUrl']
-        media_stream_url = onsei_api['mediaStreamUrl']
-        extension = os.path.splitext(media_download_url)[1]
-
-        if extension[1:] in ignore:
+        if any(word in folder_name for word in ignore):
             return
-        file_path: Path = path / onsei_api['title']
-        # To not output gibberish in .txt files like readme
-        if type == 'text':
-            with open(file_path, 'w', encoding="utf-8") as file:
-                file.write(requests.get(media_stream_url).text)
-        else:
-            with open(file_path, 'wb') as file:
-                file.write(requests.get(media_download_url).content)
-                if type == 'audio':
-                    tag_file(
-                        file_path=file_path,
-                        cover=cover,
-                        title=os.path.splitext(onsei_api['title'])[0],
-                        work_title=onsei_api['workTitle']
-                    )
-                    # Save cover.jpg in the audio folders (for jellyfin)
-                    cover_path = path / 'cover.jpg'
-                    if not os.path.isfile(cover_path):
-                        with open(cover_path, 'wb') as cover_file:
-                            cover_file.write(cover)
-                        logging.info(f'Saved cover: {cover_path}')
-        logging.info(f'Saved file: {file_path}')
+        folder_path = path / folder_name
+        create_folder(folder_path)
+        recursive_download(onsei_api['children'], cover, folder_path, ignore)
+    # File api dict
+    else:
+        process_file(onsei_api, path, cover, ignore)
 
 
-def complete_download(user_input: str) -> None:
-    # Read the config file
-    with open('config.json', 'r') as file:
-        config = json.load(file)
-    # Set all the variables
-    id: str | None = get_id(user_input)
-    if not id:
-        logging.error('No ID found in user input')
+def read_config(
+    config_path: str
+) -> dict:
+    with open(config_path, 'r') as file:
+        return json.load(file)
+
+
+def fetch_cover_image(
+    work_id: str
+) -> bytes:
+    cover_url = f'https://api.asmr-200.com/api/cover/{work_id}'
+    response = requests.get(cover_url)
+    # Ensure to get a valwork_id response
+    response.raise_for_status()
+    logging.info(f'Requested cover: {cover_url}')
+    return response.content
+
+
+def complete_download(
+    user_input: str
+) -> None:
+    config = read_config('config.json')
+    work_id = get_work_id(user_input)
+    if not work_id:
+        logging.error('No work_id found in user input')
         return
-    root_path: Path = Path(config['rootPath']) / user_input
-    ignore: list = config['ignore']
+    root_path = Path(config['rootPath']) / user_input
+    ignore_list = config['ignore']
     root_path.mkdir(parents=True, exist_ok=True)
     logging.info(f'Created folder: {root_path}')
-    cover_url = f'https://api.asmr-200.com/api/cover/{id}'
-    cover = requests.get(cover_url).content
-    logging.info(f'Request cover: {cover_url}')
-    # Get the API
-    onsei_api = get_onsei_api(id)
-    # Download the files
-    recursive_download(onsei_api, cover, root_path, ignore)
+    cover_image = fetch_cover_image(work_id)
+    onsei_api = get_onsei_api(work_id)
+
+    recursive_download(onsei_api, cover_image, root_path, ignore_list)
 
 
 if __name__ == '__main__':

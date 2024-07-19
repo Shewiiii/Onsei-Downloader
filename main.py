@@ -129,7 +129,7 @@ def recursive_download(
     onsei_api: list | dict,
     cover: bytes,
     path: Path = Path('.'),
-    ignore: list = []
+    ignore: list[str] = []
 ) -> None:
     if 'error' in onsei_api:
         logging.error(onsei_api['error'])
@@ -140,9 +140,9 @@ def recursive_download(
             recursive_download(element, cover, path, ignore)
     # Folder api dict
     elif onsei_api['type'] == 'folder':
-        folder_name = onsei_api['title']
+        folder_name: str = onsei_api['title']
         # Don't create a folder if the folder name contains an ignored format
-        if any(word in folder_name for word in ignore):
+        if any(word.lower() in folder_name.lower() for word in ignore):
             return
         folder_path = path / folder_name
         create_folder(folder_path)

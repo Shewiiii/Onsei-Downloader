@@ -1,4 +1,0 @@
-{
-    "rootPath": "./output",
-    "ignore": ["mp4","flac","wav"]
-}

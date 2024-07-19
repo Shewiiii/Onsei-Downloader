@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import os
 import logging
+import argparse
+
 
 from onep import onep
 
@@ -33,6 +35,8 @@ def get_onsei_api(
     url = f'https://api.asmr.one/api/tracks/{work_id}'
     logging.info(f'Request: {url}')
     response = requests.get(url)
+    # Ensure to get a valwork_id response
+    response.raise_for_status()
     onsei_api = json.loads(response.content)
     return onsei_api
 
@@ -165,7 +169,7 @@ def recursive_download(
 def read_config(
     config_path: str
 ) -> dict:
-    with open(config_path, 'r') as file:
+    with open(config_path, 'r', encoding='utf-8') as file:
         return json.load(file)
 
 
@@ -174,7 +178,6 @@ def fetch_cover_image(
 ) -> bytes:
     cover_url = f'https://api.asmr-200.com/api/cover/{work_id}'
     response = requests.get(cover_url)
-    # Ensure to get a valwork_id response
     response.raise_for_status()
     logging.info(f'Requested cover: {cover_url}')
     return response.content
@@ -192,13 +195,28 @@ def download_onsei(
     ignore: list = config['ignore']
     root_path.mkdir(parents=True, exist_ok=True)
     logging.info(f'Created folder: {root_path}')
-    cover_image = fetch_cover_image(work_id)
-    onsei_api = get_onsei_api(work_id)
+    try:
+        cover_image = fetch_cover_image(work_id)
+        onsei_api = get_onsei_api(work_id)
+    except requests.exceptions.HTTPError as e:
+        logging.error(e)
+        return
 
     recursive_download(onsei_api, cover_image, root_path, ignore)
 
 
 if __name__ == '__main__':
-    user_input: str = input('RJ/VJ code: ')
-    for code in user_input.split(','):
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'codes', 
+        help='The RJ/VJ codes of works you want to download.',
+        nargs='?',
+        default='',
+        type=str
+    )
+    args = parser.parse_args()
+    codes = args.codes
+    if args.codes == '':
+        codes: str = input('RJ/VJ code: ')
+    for code in codes.split(','):
         download_onsei(code)

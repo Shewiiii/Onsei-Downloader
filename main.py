@@ -3,7 +3,7 @@ import music_tag
 # In-built modules:
 import re
 import json
-from pathlib import Path, WindowsPath
+from pathlib import Path
 import os
 import logging
 
@@ -17,7 +17,9 @@ logging.basicConfig(
 )
 
 
-def get_id(user_input: str) -> int | None:
+def get_id(
+    user_input: str
+) -> str | None:
     search = re.findall(r'\d+', str(user_input))
     if not search:
         return
@@ -26,7 +28,7 @@ def get_id(user_input: str) -> int | None:
 
 
 def get_onsei_api(
-    id: int
+    id: str
 ) -> list | dict:
     url = f'https://api.asmr.one/api/tracks/{id}'
     logging.info(f'Request: {url}')
@@ -36,12 +38,15 @@ def get_onsei_api(
 
 
 def tag_file(
-    file_path: str | WindowsPath,
+    file_path: str | Path,
     cover: bytes,
     title: str,
     work_title: str
 ) -> None:
     f = music_tag.load_file(file_path)
+    if not f:
+        logging.error(f'Error loading file {file_path}')
+        return
     f['title'] = title
     f['album'] = work_title
     f['tracknumber'] = onep(title)
@@ -53,7 +58,7 @@ def tag_file(
 def recursive_download(
     onsei_api: list | dict,
     cover: bytes,
-    path: WindowsPath = Path('.'),
+    path: Path = Path('.'),
     ignore: list = []
 ) -> None:
     if 'error' in onsei_api:
@@ -89,7 +94,7 @@ def recursive_download(
 
         if extension[1:] in ignore:
             return
-        file_path: WindowsPath = path / onsei_api['title']
+        file_path: Path = path / onsei_api['title']
         # To not output gibberish in .txt files like readme
         if type == 'text':
             with open(file_path, 'w', encoding="utf-8") as file:
@@ -118,11 +123,14 @@ def complete_download(user_input: str) -> None:
     with open('config.json', 'r') as file:
         config = json.load(file)
     # Set all the variables
-    root_path: WindowsPath = Path(config['rootPath']) / user_input
+    id: str | None = get_id(user_input)
+    if not id:
+        logging.error('No ID found in user input')
+        return
+    root_path: Path = Path(config['rootPath']) / user_input
     ignore: list = config['ignore']
     root_path.mkdir(parents=True, exist_ok=True)
     logging.info(f'Created folder: {root_path}')
-    id = get_id(user_input)
     cover_url = f'https://api.asmr-200.com/api/cover/{id}'
     cover = requests.get(cover_url).content
     logging.info(f'Request cover: {cover_url}')
